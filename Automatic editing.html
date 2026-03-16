@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Auto Editor</title>
+    <style>
+        /* iOS System Theme Variables */
+        :root {
+            --bg-color: #f2f2f7;
+            --card-bg: #ffffff;
+            --text-color: #000000;
+            --secondary-text: #8e8e93;
+            --accent-color: #007aff;
+            --danger-color: #ff3b30;
+            --border-color: #c6c6c8;
+            --progress-bg: #e5e5ea;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #000000;
+            --card-bg: #1c1c1e;
+            --text-color: #ffffff;
+            --secondary-text: #8e8e93;
+            --accent-color: #0a84ff;
+            --danger-color: #ff453a;
+            --border-color: #38383a;
+            --progress-bg: #3a3a3c;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .container { max-width: 600px; margin: 0 auto; }
+
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header h1 { font-size: 28px; font-weight: 700; margin: 0; }
+        
+        .theme-toggle {
+            background: var(--card-bg); color: var(--accent-color);
+            border: 1px solid var(--border-color); padding: 8px 12px;
+            border-radius: 20px; font-size: 14px; font-weight: 600;
+            cursor: pointer; transition: 0.2s;
+        }
+
+        .card {
+            background-color: var(--card-bg); border-radius: 12px;
+            padding: 16px; margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .section-title { font-size: 13px; text-transform: uppercase; color: var(--secondary-text); font-weight: 600; margin-bottom: 10px; letter-spacing: 0.5px; }
+
+        input[type="file"] {
+            display: block; width: 100%; margin-top: 5px;
+            color: var(--secondary-text); font-size: 14px;
+        }
+
+        /* Video List Styles */
+        .video-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 0; border-bottom: 1px solid var(--border-color);
+        }
+        .video-row:last-child { border-bottom: none; }
+        
+        .btn {
+            background: none; border: none; font-size: 16px; font-weight: 600; cursor: pointer; padding: 5px 10px; border-radius: 8px; transition: 0.2s;
+        }
+        .btn-add { color: var(--accent-color); margin-top: 10px; display: block; width: 100%; text-align: center; }
+        .btn-remove { color: var(--danger-color); font-size: 14px; }
+        .btn-primary {
+            background-color: var(--accent-color); color: #fff; width: 100%;
+            padding: 14px; border-radius: 12px; font-size: 17px; margin-top: 10px;
+        }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Progress Bar */
+        #progressContainer { display: none; text-align: center; margin-top: 20px; }
+        .progress-track {
+            background: var(--progress-bg); height: 6px; border-radius: 3px;
+            overflow: hidden; margin-bottom: 10px;
+        }
+        .progress-fill {
+            background: var(--accent-color); height: 100%; width: 0%;
+            transition: width 0.2s linear;
+        }
+        .progress-text { font-size: 14px; color: var(--secondary-text); }
+        .warning-text { font-size: 12px; color: var(--danger-color); margin-top: 5px; }
+
+        /* Player & Download */
+        #previewContainer { display: none; margin-top: 20px; }
+        video.player {
+            width: 100%; border-radius: 12px; background: #000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); margin-bottom: 15px;
+        }
+
+        canvas { display: none; } /* Kept hidden to run process in background */
+    </style>
+</head>
+<body data-theme="light">
+
+<div class="container">
+    <div class="header">
+        <h1>Auto Editor</h1>
+        <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+    </div>
+
+    <div class="card">
+        <div class="section-title">Background Music</div>
+        <input type="file" id="audioFile" accept="audio/*" />
+    </div>
+
+    <div class="card">
+        <div class="section-title">Raw Videos</div>
+        <div id="videoInputsContainer">
+            <div class="video-row">
+                <input type="file" class="video-file-input" accept="video/*" />
+            </div>
+        </div>
+        <button class="btn btn-add" onclick="addVideoRow()">+ Add Another Video</button>
+    </div>
+
+    <button class="btn btn-primary" id="processBtn" onclick="startProcessing()">Create Magic Video</button>
+
+    <!-- Progress UI -->
+    <div id="progressContainer">
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText">Processing: 0%</div>
+        <div class="warning-text">Please keep this tab open and active while generating.</div>
+    </div>
+
+    <!-- Final Preview & Download UI -->
+    <div id="previewContainer" class="card">
+        <div class="section-title">Your Video is Ready</div>
+        <!-- Native video player enables Play, Pause, Fast Forward, Rewind -->
+        <video id="finalPlayer" class="player" controls></video>
+        <a id="downloadBtn" style="text-decoration: none;">
+            <button class="btn btn-primary">Save to Device (MP4)</button>
+        </a>
+    </div>
+
+    <!-- Hidden Canvas used for background rendering -->
+    <canvas id="renderCanvas" width="1280" height="720"></canvas>
+</div>
+
+<script>
+    // --- 1. UI & Theme Logic ---
+    function toggleTheme() {
+        const body = document.body;
+        const btn = document.getElementById('themeBtn');
+        if (body.getAttribute('data-theme') === 'light') {
+            body.setAttribute('data-theme', 'dark');
+            btn.innerText = '☀️ Light';
+        } else {
+            body.setAttribute('data-theme', 'light');
+            btn.innerText = '🌙 Dark';
+        }
+    }
+
+    // Detect System Theme
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) toggleTheme();
+
+    function addVideoRow() {
+        const container = document.getElementById('videoInputsContainer');
+        const row = document.createElement('div');
+        row.className = 'video-row';
+        
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.className = 'video-file-input';
+        input.accept = 'video/*';
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'btn btn-remove';
+        removeBtn.innerText = 'Remove';
+        removeBtn.onclick = () => row.remove();
+        
+        row.appendChild(input);
+        row.appendChild(removeBtn);
+        container.appendChild(row);
+    }
+
+    // --- 2. Core Video Processing Logic ---
+    const canvas = document.getElementById('renderCanvas');
+    const ctx = canvas.getContext('2d');
+    let audioCtx;
+
+    async function startProcessing() {
+        const audioFile = document.getElementById('audioFile').files[0];
+        const videoInputs = document.querySelectorAll('.video-file-input');
+        const validVideoFiles = Array.from(videoInputs)
+            .map(input => input.files[0])
+            .filter(file => file !== undefined);
+
+        if (!audioFile) return alert("Please upload a background music file.");
+        if (validVideoFiles.length === 0) return alert("Please upload at least one video file.");
+
+        // Update UI
+        document.getElementById('processBtn').disabled = true;
+        document.getElementById('progressContainer').style.display = 'block';
+        document.getElementById('previewContainer').style.display = 'none';
+
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            updateProgress(5, "Analyzing bass drops...");
+            const audioData = await audioFile.arrayBuffer();
+            const audioBuffer = await audioCtx.decodeAudioData(audioData);
+            const beatTimes = await detectBeats(audioBuffer);
+            beatTimes.push(audioBuffer.duration); 
+
+            updateProgress(15, "Loading videos into memory...");
+            const videos = await loadVideos(validVideoFiles);
+
+            updateProgress(20, "Rendering video...");
+            await renderAndRecord(videos, audioBuffer, beatTimes);
+
+        } catch (err) {
+            console.error(err);
+            alert(`Error: ${err.message}`);
+            document.getElementById('processBtn').disabled = false;
+            document.getElementById('progressContainer').style.display = 'none';
+        }
+    }
+
+    function updateProgress(percent, text) {
+        document.getElementById('progressFill').style.width = percent + '%';
+        if (text) document.getElementById('progressText').innerText = text;
+    }
+
+    // Bass detection using OfflineAudioContext (Lowpass filter isolation)
+    async function detectBeats(audioBuffer) {
+        const offlineCtx = new OfflineAudioContext(1, audioBuffer.length, audioBuffer.sampleRate);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+
+        const lowpass = offlineCtx.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.value = 120; // Focus on bass
+
+        source.connect(lowpass);
+        lowpass.connect(offlineCtx.destination);
+        source.start(0);
+
+        const renderedBuffer = await offlineCtx.startRendering();
+        const data = renderedBuffer.getChannelData(0);
+
+        let maxAmp = 0;
+        for (let i = 0; i < data.length; i++) {
+            if (Math.abs(data[i]) > maxAmp) maxAmp = Math.abs(data[i]);
+        }
+
+        const peaks =[];
+        const threshold = maxAmp * 0.75; 
+        const minSamplesBetweenCuts = audioBuffer.sampleRate * 1.5; 
+        let lastPeakIndex = 0;
+
+        for (let i = 0; i < data.length; i++) {
+            if (Math.abs(data[i]) > threshold) {
+                if (i - lastPeakIndex > minSamplesBetweenCuts || lastPeakIndex === 0) {
+                    peaks.push(i / audioBuffer.sampleRate);
+                    lastPeakIndex = i;
+                }
+            }
+        }
+
+        if (peaks.length < 2) {
+            for(let t = 2; t < audioBuffer.duration; t += 2) peaks.push(t);
+        }
+        return peaks;
+    }
+
+    function loadVideos(files) {
+        return Promise.all(Array.from(files).map(file => {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const video = document.createElement('video');
+                video.src = url;
+                video.muted = true;
+                video.loop = true;
+                video.crossOrigin = "anonymous";
+                video.onloadeddata = () => resolve(video);
+                video.onerror = reject;
+            });
+        }));
+    }
+
+    async function renderAndRecord(videos, audioBuffer, beatTimes) {
+        const stream = canvas.captureStream(30);
+
+        // Mix audio for recording (SILENT to the user during processing)
+        const dest = audioCtx.createMediaStreamDestination();
+        const audioSource = audioCtx.createBufferSource();
+        audioSource.buffer = audioBuffer;
+        audioSource.connect(dest); 
+        // Note: Not connecting to audioCtx.destination makes it process silently!
+        stream.addTrack(dest.stream.getAudioTracks()[0]);
+
+        let mimeType = 'video/webm; codecs=vp9';
+        if (MediaRecorder.isTypeSupported('video/mp4')) mimeType = 'video/mp4'; 
+        
+        const recorder = new MediaRecorder(stream, { mimeType: mimeType });
+        const chunks =[];
+        recorder.ondataavailable = e => chunks.push(e.data);
+        
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            
+            // Set output to native video player for preview (Pause, Resume, FF, Rewind)
+            const finalPlayer = document.getElementById('finalPlayer');
+            finalPlayer.src = url;
+            
+            // Setup Download
+            const downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.href = url;
+            downloadBtn.download = mimeType.includes('mp4') ? 'Magic_Edit.mp4' : 'Magic_Edit.webm';
+            
+            // Update UI
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('previewContainer').style.display = 'block';
+            document.getElementById('processBtn').disabled = false;
+        };
+
+        recorder.start();
+        audioSource.start(0);
+        const startTime = audioCtx.currentTime;
+        let currentBeatIdx = 0;
+        let activeVideo = videos[0];
+        activeVideo.play();
+
+        function drawFrame() {
+            const now = audioCtx.currentTime - startTime;
+            
+            // End condition
+            if (now >= audioBuffer.duration) {
+                recorder.stop();
+                activeVideo.pause();
+                return;
+            }
+
+            // Progress Bar tracking
+            const progressPct = 20 + Math.floor((now / audioBuffer.duration) * 80);
+            updateProgress(progressPct, `Rendering: ${Math.floor(now)}s / ${Math.floor(audioBuffer.duration)}s`);
+
+            // Cut logic
+            if (now > beatTimes[currentBeatIdx]) {
+                currentBeatIdx++;
+                activeVideo.pause();
+                activeVideo = videos[currentBeatIdx % videos.length];
+                activeVideo.currentTime = Math.random() * Math.max(0, activeVideo.duration - 3);
+                activeVideo.play();
+            }
+
+            // Draw to Canvas
+            drawVideoMaintainAspectRatio(activeVideo);
+            requestAnimationFrame(drawFrame);
+        }
+        
+        drawFrame();
+    }
+
+    function drawVideoMaintainAspectRatio(video) {
+        const canvasRatio = canvas.width / canvas.height;
+        const videoRatio = video.videoWidth / video.videoHeight;
+        let drawWidth, drawHeight, startX, startY;
+
+        if (videoRatio > canvasRatio) {
+            drawHeight = canvas.height;
+            drawWidth = canvas.height * videoRatio;
+            startX = (canvas.width - drawWidth) / 2;
+            startY = 0;
+        } else {
+            drawWidth = canvas.width;
+            drawHeight = canvas.width / videoRatio;
+            startX = 0;
+            startY = (canvas.height - drawHeight) / 2;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, startX, startY, drawWidth, drawHeight);
+    }
+</script>
+</body>
+</html>
